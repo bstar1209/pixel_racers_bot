@@ -1,18 +1,31 @@
 import { Client, MessageEmbed } from 'discord.js'
+import { programs } from '@metaplex/js'
+import axios from 'axios'
+// import fs from "fs";
 
 import {
-  CLUSTERS,
   COMMAND_PREFIX,
   DISCORD_TOKEN,
   GUILD_ID,
   CHANNEL_ID,
+  NETWORK,
+  PIXEL_RACERS_CARS_ID,
+  PIXEL_RACERS_ENGINES_ID,
+  PIXEL_RACERS_PIT_CREW_ID,
 } from './config/index.js'
-import fetch from "node-fetch";
-import Utils from './src/utils.js'
+
+import {
+  Connection,
+  PublicKey,
+  clusterApiUrl,
+  LAMPORTS_PER_SOL,
+} from '@solana/web3.js';
 
 // Create a new discord client instance
 const client = new Client({ intents: ["GUILDS", "GUILD_MESSAGES", "DIRECT_MESSAGES"], partials: ["CHANNEL"] });
 let guild = undefined;
+
+const { metadata: { Metadata } } = programs;
 
 let dangerColor = '#d93f71';
 let infoColor = '#0099ff';
@@ -25,6 +38,9 @@ let totalOwners = [];
 let totalMetadatas = [];
 let totalTransactions = [];
 let curBlockTime = 0;
+
+// const engineMints = JSON.parse(fs.readFileSync('token_list/Pixel_Racers_Engine_List.json'));
+// console.log(engineMints)
 
 // When the client is ready, run this code
 client.once('ready', async () => {
@@ -53,93 +69,95 @@ const initBot = async () => {
   const guild = await client.guilds.fetch(GUILD_ID);
   const channel = await guild.channels.fetch(CHANNEL_ID);
 
-  let checkMintInterval = setInterval(async () => {
-    let tokens = [];
-    let transactions = [];
+  let signatures;
+  const connection = new Connection(clusterApiUrl(NETWORK), 'confirmed');
+  const options = {};
+
+  const marketplaceMap = {
+    "MEisE1HzehtrDpAAT8PnLHjpSSkRYakotTuJRPjTpo8": "Magic Eden",
+    "M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K": "Magic Eden",
+    "HZaWndaNWHFDd9Dhk5pqUUtsmoBCqzb1MLu3NAh1VX6B": "Alpha Art",
+    "617jbWo616ggkDxvW1Le8pV38XLbVSyWY8ae6QUmGBAU": "Solsea",
+    "CJsLwbP1iu5DuUikHEJnLfANgKy6stB2uFgvBBHoyxwz": "Solanart",
+    "A7p8451ktDCHq5yYaHczeLMYsjRsAkzc3hCXcSrwYHU7": "Digital Eyes",
+    "AmK5g2XcyptVLCFESBCJqoSfwV3znGoVYQnqEnaAZKWn": "Exchange Art",
+  };
+
+  while (true) {
     try {
-      tokens = await Utils.getMints();
-      if (totalTokens.length == 0) {
-        totalTokens = tokens;
+      signatures = await connection.getSignaturesForAddress(new PublicKey(PIXEL_RACERS_PIT_CREW_ID), options);
+      console.log(signatures.length)
+      if (signatures.length == 0) {
+        continue;
       }
-    } catch (error) {
-      tokens = totalTokens;
-      console.log('error detected')
-    }
 
-    try {
-      transactions = await Utils.getLatestSellTxn(); 
-      if (totalTransactions.length == 0) {
-        totalTransactions = transactions;
-      }     
-    } catch (error) {
-      transactions = totalTransactions;
-      console.log('error transactions detected')
-    }
-    
-    // get the difference to catch the new token.
-    var difference = tokens.filter(elem => totalTokens.indexOf(elem) === -1);
-    console.log(difference, totalTokens.length, tokens.length);
+      for (let i = signatures.length - 1; i >= 0; i--) {
+        try {
+          let { signature } = signatures[i];
+          const txn = await connection.getTransaction(signature);
+          if (txn.meta && txn.meta.err != null) { continue; }
 
-    // get the difference to catch the sell transaction      
-    var differTxn = transactions.filter(({ signature: id1 }) => !totalTransactions.some(({ signature: id2 }) => id2 === id1));
+          const dateString = new Date(txn.blockTime * 1000).toLocaleString();
+          const price = Math.abs((txn.meta.preBalances[0] - txn.meta.postBalances[0])) / LAMPORTS_PER_SOL;
+          const accounts = txn.transaction.message.accountKeys;
+          const marketplaceAccount = accounts[accounts.length - 1].toString();
 
-    console.log(differTxn, transactions.length, totalTransactions.length);
+          // console.log(marketplaceAccount)
+          if (marketplaceMap[marketplaceAccount]) {
+            const metadata = await getMetadata(txn.meta.postTokenBalances[0].mint);
+            if (!metadata) {
+              console.log("couldn't get metadata");
+              continue;
+            }
 
-    totalTransactions = transactions;
+            console.log([metadata.name, price, dateString, signature, metadata.image, marketplaceMap[marketplaceAccount]])
 
-    if (difference.length > 0) { // detected new token
-      try {        
-        let metadata = await Utils.getMeta(difference[0]);
-        totalMetadatas[difference[0]] = metadata;
+            const txn_embed = new MessageEmbed()
+              .setColor(infoColor)
+              .setTitle('Sale');
 
-        const embed = new MessageEmbed()
-          .setColor(infoColor)
-          .setTitle('Another degen joined the gang!')
-          .setImage(metadata.metadata.image);
-
-        for (let i = 0; i < metadata.metadata.attributes.length; i++) {
-          const elem = metadata.metadata.attributes[i];
-          embed.addField(`${elem.trait_type}`, `${elem.value}`, true);
-        }
-
-        channel.send({
-          embeds: [embed]
-        }).catch(error => {
-          console.log(`Cannot send messages to this user`);
-        });
-      } catch (error) {
-        console.log('error')
-      }
-    }
-
-    if (differTxn.length > 0) { // detected new token
-      console.log('--differ-txn--', differTxn);
-      for(var i = 0; i < differTxn.length; i++ )
-      {
-        try 
-        {              
-          let txn_metadata = await Utils.getMeta(differTxn[i].mint);
-
-          //console.log('--metadata--', txn_metadata);
-          const txn_embed = new MessageEmbed()
-            .setColor(infoColor)
-            .setTitle('Another degen joined the gang!');
-
-            txn_embed.setImage(txn_metadata.metadata.image); //txn_metadata.metadata.data.url
-            txn_embed.addField('Name', txn_metadata.metadata.data.name, true); 
-            txn_embed.addField('Selling Price', `${differTxn[i].price}`, true);                        
+            txn_embed.setImage(metadata.image); //txn_metadata.metadata.data.url
+            txn_embed.addField('Name', `${metadata.name}`, true);
+            txn_embed.addField('Price', `${price} SOL`, true);
+            txn_embed.addField('Date', `${dateString}`, true);
+            txn_embed.addField('Explorer', `https://explorer.solana.com/tx/${signature}`, true);
 
             channel.send({
               embeds: [txn_embed]
             }).catch(error => {
               console.log(`Cannot send messages to this user`);
-            });                  
-        } catch (error) {
-          console.log('error', error);
+            });
+          } else {
+            console.log("not a supported marketplace sale");
+          }
+        } catch (err) {
+          console.log("error while going through signatures: ", err);
+          continue;
         }
-      }    
-    }    
-  }, 5000);  
+      }
+
+      const lastKnownSignature = signatures[0].signature;
+      if (lastKnownSignature) {
+        options.until = lastKnownSignature;
+      }
+    } catch (err) {
+      console.log("error fetching signatures: ", err);
+    }
+  }
+}
+
+const getMetadata = async (tokenPubKey) => {
+  const connection = new Connection(clusterApiUrl(NETWORK), 'confirmed');
+
+  try {
+    const addr = await Metadata.getPDA(tokenPubKey)
+    const resp = await Metadata.load(connection, addr);
+    const { data } = await axios.get(resp.data.data.uri);
+
+    return data;
+  } catch (error) {
+    console.log("error fetching metadata: ", error)
+  }
 }
 
 try {
