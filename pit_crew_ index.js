@@ -5,12 +5,10 @@ import axios from 'axios'
 
 import {
   COMMAND_PREFIX,
-  DISCORD_TOKEN,
+  PIXEL_RACERS_PIT_CREW_DISCORD_TOKEN,
   GUILD_ID,
   CHANNEL_ID,
   NETWORK,
-  PIXEL_RACERS_CARS_ID,
-  PIXEL_RACERS_ENGINES_ID,
   PIXEL_RACERS_PIT_CREW_ID,
 } from './config/index.js'
 
@@ -83,12 +81,12 @@ const initBot = async () => {
     "AmK5g2XcyptVLCFESBCJqoSfwV3znGoVYQnqEnaAZKWn": "Exchange Art",
   };
 
-  signatures = await connection.getSignaturesForAddress(new PublicKey(PIXEL_RACERS_CARS_ID), {});
+  signatures = await connection.getSignaturesForAddress(new PublicKey(PIXEL_RACERS_PIT_CREW_ID), {});
   if (signatures[0].signature) options.until = signatures[0].signature
 
   while (true) {
     try {
-      signatures = await connection.getSignaturesForAddress(new PublicKey(PIXEL_RACERS_CARS_ID), options);
+      signatures = await connection.getSignaturesForAddress(new PublicKey(PIXEL_RACERS_PIT_CREW_ID), options);
       console.log(signatures.length)
       if (signatures.length == 0) {
         continue;
@@ -105,7 +103,7 @@ const initBot = async () => {
           const accounts = txn.transaction.message.accountKeys;
           const marketplaceAccount = accounts[accounts.length - 1].toString();
 
-          // console.log(marketplaceAccount)
+          console.log(marketplaceAccount)
           if (marketplaceMap[marketplaceAccount]) {
             const metadata = await getMetadata(txn.meta.postTokenBalances[0].mint);
             if (!metadata) {
@@ -162,7 +160,7 @@ const getMetadata = async (tokenPubKey) => {
 
 try {
   // Login to Discord with your client's token
-  client.login(DISCORD_TOKEN);
+  client.login(PIXEL_RACERS_PIT_CREW_DISCORD_TOKEN);
 } catch (e) {
   console.error('Client has failed to connect to discord.');
   process.exit(1);
