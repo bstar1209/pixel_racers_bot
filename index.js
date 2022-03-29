@@ -83,9 +83,12 @@ const initBot = async () => {
     "AmK5g2XcyptVLCFESBCJqoSfwV3znGoVYQnqEnaAZKWn": "Exchange Art",
   };
 
+  signatures = await connection.getSignaturesForAddress(new PublicKey(PIXEL_RACERS_CARS_ID), {});
+  if (signatures[0].signature) options.until = signatures[0].signature
+
   while (true) {
     try {
-      signatures = await connection.getSignaturesForAddress(new PublicKey(PIXEL_RACERS_PIT_CREW_ID), options);
+      signatures = await connection.getSignaturesForAddress(new PublicKey(PIXEL_RACERS_CARS_ID), options);
       console.log(signatures.length)
       if (signatures.length == 0) {
         continue;
@@ -136,10 +139,7 @@ const initBot = async () => {
         }
       }
 
-      const lastKnownSignature = signatures[0].signature;
-      if (lastKnownSignature) {
-        options.until = lastKnownSignature;
-      }
+      if (signatures[0].signature) options.until = signatures[0].signature;
     } catch (err) {
       console.log("error fetching signatures: ", err);
     }
